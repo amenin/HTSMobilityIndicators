@@ -1,0 +1,73 @@
+source('utils.r')
+
+parser <- setParser('Prepare files for indicators')
+
+args <- parser$parse_args()
+args$area = 'lyon'
+
+loadPackages(c('sf'))
+
+readShapeFile <- function(file_name){
+  file_path <- getFilePath(args$shape, file_name)
+  st_read(file_path, stringsAsFactors = FALSE) %>%
+    st_transform("+proj=longlat +ellps=GRS80") 
+}
+
+# modify the code below according to the shapefile and the territorial partition you need
+sf <- readShapeFile('original/ESGT_AML2015_ZF_GT.shp')
+sf_dtir <- readShapeFile('original/ESGT_AML2015_DTIR.shp')
+
+# 47 codes are not in the shapefile (external fines zones)
+# "901" "903" "905" "906" "907" "912" "913" "921" "924" "925" "926" "930" "931" "933" "934" "935" "937" "938" "939" "942" "943" "944" "957" "958" "960" "963" "968" "970"
+# "971" "972" "973" "974" "975" "976" "977" "979" "980" "983" "984" "986" "987" "989" "992" "993" "994" "995" "999"
+# length(unique(codes[!(codes %in% sf_dtir$DTIR)]))
+
+# 301 OD codes are not in the shapefile
+# 101351 101551 103251 104251 110251 110551 111251 111551 116251 116551 118251 121251 122251 125251 125351 128251 130251 131251 132251 138251 141251 142251 145251 204551
+# 206251 206252 206551 208551 211251 212551 215551 216551 217351 218551 220551 223351 224551 226251 227551 228351 228551 232251 232551 232552 233251 234251 235551 236251
+# 236252 238551 239251 242251 242551 242552 247551 248551 249351 252551 253351 301351 301551 303551 304251 304351 304551 401351 402551 403551 404551 502551 513351 513551
+# 514551 601551 602551 610551 613551 614551 617552 706551 901017 901024 901033 901040 901050 901053 901060 901091 901093 901109 901134 901143 901160 901173 901184 901186
+# 901195 901269 901273 901283 901288 901303 901304 901309 901314 901317 901354 901357 901393 901400 901403 901419 903000 905104 906000 907010 907019 907051 907055 907089
+# 907102 907172 907186 907313 907319 907331 907341 907349 912000 913000 921000 924000 925000 926005 926006 926038 926058 926088 926108 926124 926148 926174 926184 926198
+# 926235 926252 926325 926333 926337 926347 926362 930000 931000 933000 934000 935000 937000 938034 938058 938069 938130 938134 938151 938158 938169 938174 938185 938191
+# 938194 938225 938229 938244 938259 938270 938274 938285 938291 938317 938335 938382 938384 938421 938450 938471 938486 938524 938563 938565 939171 939300 939362 939475
+# 939482 942005 942022 942051 942056 942059 942069 942094 942095 942103 942110 942123 942140 942147 942149 942168 942171 942186 942187 942191 942204 942207 942208 942218
+# 942221 942222 942237 942242 942265 942275 942281 942304 942305 942316 942323 942327 943000 944000 957000 958000 960000 963000 968000 970000 971076 971118 971133 971153
+# 971157 971263 971270 971289 971342 971543 971578 972000 973004 973008 973011 973051 973065 973067 973109 973150 973179 973180 973204 973248 973250 973257 973296 973303
+# 973304 973328 974010 974011 974012 974119 974133 974160 974208 974212 974215 974224 974225 974242 974256 974289 974302 975000 976000 977000 979000 980000 983000 984000
+# 986000 987000 989000 992000 993000 994000 995000 999010 999040 999050 999080 999090 999100
+
+sf_new <- sf %>% mutate(code = as.numeric(ZF2015_Nou)) %>%
+  rename(name = Lib_Zone_f) %>%
+  select(code, name) %>%
+  arrange(code)
+
+st_write(sf_new %>% select(code, name), getFilePath(args$shape, 'OD_sectors.shp'), delete_dsn = TRUE)
+
+# for Lyon, use the fines zones to create the space referencial file (before the abvove modifications)
+
+# space_ref <- tibble(OD = sf$ZF2015_Nou, DTIR = sf$DTIR, D30 = sf$D30, D10 = sf$D10) %>%
+# codes <- paste0(sf$DTIR, str_pad(sf$D2, 3, pad = '0'))
+space_ref <- tibble(OD = sf$ZF2015_Nou, DTIR = sf$DTIR, D30 = sf$D30, D10 = sf$D10) %>%
+  mutate(D10 = substr(D10, 5,6), D30 = substr(D30, 5, 6)) %>%
+  arrange(OD, DTIR, D30, D10)
+
+
+# existing destination codes that are missing from space_ref
+# using ZF__2015 gives a difference of 301 codes
+# using ZF2015_Nou gives a difference of 248 codes
+# using code = DTIR + D2, the difference is 31 codes
+# code = DTIR_170 + D2, difference is 32 codes
+# unique(space_ref$OD[!(space_ref$OD %in% unique(depla$D7))])
+# [1] "109001" "229001" "231001" "239001" "503002" "504002" "505002" "506002" "507002" "508002" "509002" "510002" "513002" "515002" "516002" "517002" "518002" "604002"
+# [19] "605002" "607002" "608002" "609002" "610002" "615002" "616002" "617002" "618002" "702002" "704002" "709002" "710002"
+
+# for Grenoble
+od_ref <- read_csv(getFilePath(args$csv, 'od_t90.csv'))
+space_ref <- read_csv(getFilePath(args$csv, 'space_ref.csv')) # it is no longer the one used to generate the table below
+
+space_ref <- od_ref %>% mutate(t30 = mapvalues(t90, from = space_ref$t90, to = space_ref$t30), t10 = mapvalues(t90, from = space_ref$t90, to = space_ref$t10)) %>%
+  mutate(od = paste0(substr(od, 1, 3), str_pad(substr(od, 4, 5), 3, pad = '0'))) %>% rename(OD = od, DTIR = t90, D30 = t30, D10 = t10)
+
+write_csv(space_ref, getFilePath(args$csv, 'space_ref.csv'))
+saveRDS(space_ref, getFilePath(args$rds, 'space_ref.rds'))
